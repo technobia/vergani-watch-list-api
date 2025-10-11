@@ -1,0 +1,178 @@
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+
+const app = new Hono();
+
+// Enable CORS
+app.use('/*', cors());
+
+// Helper function to make Shopify GraphQL requests
+const shopifyGraphQL = async (env, query, variables = {}) => {
+  const store = env.SHOPIFY_STORE_URL;
+  const version = env.SHOPIFY_API_VERSION || '2024-10';
+  const url = `https://${store}/admin/api/${version}/graphql.json`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': env.SHOPIFY_ACCESS_TOKEN,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Shopify API error: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  if (data.errors) {
+    throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+  }
+
+  return data;
+};
+
+// Get current watch list
+const getWatchList = async (env) => {
+  const query = `
+    query getCompanyLocation($id: ID!) {
+      companyLocation(id: $id) {
+        id
+        metafield(namespace: "custom", key: "watch_list") {
+          value
+        }
+      }
+    }
+  `;
+
+  const result = await shopifyGraphQL(env, query, {
+    id: env.COMPANY_LOCATION_ID,
+  });
+
+  const metafieldValue = result.data?.companyLocation?.metafield?.value;
+  return metafieldValue ? JSON.parse(metafieldValue) : [];
+};
+
+// Update watch list
+const updateWatchList = async (env, watchList) => {
+  const mutation = `
+    mutation setMetafield($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          id
+          namespace
+          key
+          value
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const result = await shopifyGraphQL(env, mutation, {
+    metafields: [
+      {
+        ownerId: env.COMPANY_LOCATION_ID,
+        namespace: 'custom',
+        key: 'watch_list',
+        value: JSON.stringify(watchList),
+        type: 'json',
+      },
+    ],
+  });
+
+  if (result.data?.metafieldsSet?.userErrors?.length > 0) {
+    throw new Error(`Metafield update errors: ${JSON.stringify(result.data.metafieldsSet.userErrors)}`);
+  }
+
+  return result;
+};
+
+// POST /api/watchlist/add - Add product to watch list
+app.post('/api/watchlist/add', async (c) => {
+  try {
+    const { productId } = await c.req.json();
+
+    if (!productId) {
+      return c.json({ error: 'productId is required' }, 400);
+    }
+
+    const watchList = await getWatchList(c.env);
+
+    // Check if product already exists
+    if (watchList.includes(productId)) {
+      return c.json({
+        message: 'Product already in watch list',
+        watchList,
+      });
+    }
+
+    // Add product to watch list
+    watchList.push(productId);
+    await updateWatchList(c.env, watchList);
+
+    return c.json({
+      message: 'Product added to watch list',
+      watchList,
+    });
+  } catch (error) {
+    console.error('Error adding to watch list:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /api/watchlist/remove - Remove product from watch list
+app.delete('/api/watchlist/remove', async (c) => {
+  try {
+    const { productId } = await c.req.json();
+
+    if (!productId) {
+      return c.json({ error: 'productId is required' }, 400);
+    }
+
+    const watchList = await getWatchList(c.env);
+
+    // Check if product exists in watch list
+    const index = watchList.indexOf(productId);
+    if (index === -1) {
+      return c.json({
+        error: 'Product not found in watch list',
+        watchList,
+      }, 404);
+    }
+
+    // Remove product from watch list
+    watchList.splice(index, 1);
+    await updateWatchList(c.env, watchList);
+
+    return c.json({
+      message: 'Product removed from watch list',
+      watchList,
+    });
+  } catch (error) {
+    console.error('Error removing from watch list:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /api/watchlist - Get current watch list (optional, for debugging)
+app.get('/api/watchlist', async (c) => {
+  try {
+    const watchList = await getWatchList(c.env);
+    return c.json({ watchList });
+  } catch (error) {
+    console.error('Error getting watch list:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Health check
+app.get('/health', (c) => {
+  return c.json({ status: 'ok' });
+});
+
+export default app;

@@ -2,7 +2,11 @@
   "name": "vergani-watch-list-api",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
   "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -15,5 +19,14 @@
     "url": "https://github.com/technobia/vergani-watch-list-api/issues"
   },
   "homepage": "https://github.com/technobia/vergani-watch-list-api#readme",
-  "description": ""
+  "description": "Lightweight serverless API for managing Shopify watch list on Cloudflare Workers",
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
