@@ -6,19 +6,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/technobia/vergani-watch-list-api.git"
+    "tail": "wrangler tail"
   },
   "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/technobia/vergani-watch-list-api/issues"
-  },
-  "homepage": "https://github.com/technobia/vergani-watch-list-api#readme",
   "description": "Lightweight serverless API for managing Shopify watch list on Cloudflare Workers",
   "dependencies": {
     "hono": "^4.0.0"

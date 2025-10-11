@@ -3,10 +3,8 @@ import { cors } from 'hono/cors';
 
 const app = new Hono();
 
-// Enable CORS
 app.use('/*', cors());
 
-// Helper function to make Shopify GraphQL requests
 const shopifyGraphQL = async (env, query, variables = {}) => {
   const store = env.SHOPIFY_STORE_URL;
   const version = env.SHOPIFY_API_VERSION || '2024-10';
@@ -33,7 +31,6 @@ const shopifyGraphQL = async (env, query, variables = {}) => {
   return data;
 };
 
-// Get current watch list
 const getWatchList = async (env) => {
   const query = `
     query getCompanyLocation($id: ID!) {
@@ -54,7 +51,6 @@ const getWatchList = async (env) => {
   return metafieldValue ? JSON.parse(metafieldValue) : [];
 };
 
-// Update watch list
 const updateWatchList = async (env, watchList) => {
   const mutation = `
     mutation setMetafield($metafields: [MetafieldsSetInput!]!) {
@@ -80,7 +76,7 @@ const updateWatchList = async (env, watchList) => {
         namespace: 'custom',
         key: 'watch_list',
         value: JSON.stringify(watchList),
-        type: 'json',
+        type: 'list.product_reference',
       },
     ],
   });
@@ -92,7 +88,6 @@ const updateWatchList = async (env, watchList) => {
   return result;
 };
 
-// POST /api/watchlist/add - Add product to watch list
 app.post('/api/watchlist/add', async (c) => {
   try {
     const { productId } = await c.req.json();
@@ -103,7 +98,6 @@ app.post('/api/watchlist/add', async (c) => {
 
     const watchList = await getWatchList(c.env);
 
-    // Check if product already exists
     if (watchList.includes(productId)) {
       return c.json({
         message: 'Product already in watch list',
@@ -111,7 +105,6 @@ app.post('/api/watchlist/add', async (c) => {
       });
     }
 
-    // Add product to watch list
     watchList.push(productId);
     await updateWatchList(c.env, watchList);
 
@@ -125,7 +118,6 @@ app.post('/api/watchlist/add', async (c) => {
   }
 });
 
-// DELETE /api/watchlist/remove - Remove product from watch list
 app.delete('/api/watchlist/remove', async (c) => {
   try {
     const { productId } = await c.req.json();
@@ -136,7 +128,6 @@ app.delete('/api/watchlist/remove', async (c) => {
 
     const watchList = await getWatchList(c.env);
 
-    // Check if product exists in watch list
     const index = watchList.indexOf(productId);
     if (index === -1) {
       return c.json({
@@ -145,7 +136,6 @@ app.delete('/api/watchlist/remove', async (c) => {
       }, 404);
     }
 
-    // Remove product from watch list
     watchList.splice(index, 1);
     await updateWatchList(c.env, watchList);
 
@@ -157,22 +147,6 @@ app.delete('/api/watchlist/remove', async (c) => {
     console.error('Error removing from watch list:', error);
     return c.json({ error: error.message }, 500);
   }
-});
-
-// GET /api/watchlist - Get current watch list (optional, for debugging)
-app.get('/api/watchlist', async (c) => {
-  try {
-    const watchList = await getWatchList(c.env);
-    return c.json({ watchList });
-  } catch (error) {
-    console.error('Error getting watch list:', error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-
-// Health check
-app.get('/health', (c) => {
-  return c.json({ status: 'ok' });
 });
 
 export default app;
