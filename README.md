@@ -20,7 +20,6 @@ npm run dev
 npx wrangler login
 npx wrangler secret put SHOPIFY_STORE_URL
 npx wrangler secret put SHOPIFY_ACCESS_TOKEN
-npx wrangler secret put COMPANY_LOCATION_ID
 npm run deploy
 ```
 
@@ -30,6 +29,7 @@ npm run deploy
 ```bash
 POST /api/watchlist/add
 {
+  "companyLocationId": "gid://shopify/CompanyLocation/123456789",
   "productId": "gid://shopify/Product/123456789"
 }
 ```
@@ -38,6 +38,7 @@ POST /api/watchlist/add
 ```bash
 DELETE /api/watchlist/remove
 {
+  "companyLocationId": "gid://shopify/CompanyLocation/123456789",
   "productId": "gid://shopify/Product/123456789"
 }
 ```

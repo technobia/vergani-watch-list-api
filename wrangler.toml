@@ -2,13 +2,10 @@ name = "vergani-watch-list-api"
 main = "index.js"
 compatibility_date = "2024-10-11"
 
-# Environment variables (set these using: wrangler secret put VARIABLE_NAME)
-# Or use wrangler.toml for non-sensitive values
 [vars]
 SHOPIFY_API_VERSION = "2024-10"
 
 # Secrets (set via CLI):
 # wrangler secret put SHOPIFY_STORE_URL
 # wrangler secret put SHOPIFY_ACCESS_TOKEN
-# wrangler secret put COMPANY_LOCATION_ID
 

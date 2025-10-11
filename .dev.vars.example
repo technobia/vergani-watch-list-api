@@ -1,9 +1,7 @@
 # Local development environment variables
 # Copy this file to .dev.vars and fill in your actual values
-# .dev.vars is used by wrangler dev for local testing
 
 SHOPIFY_STORE_URL=your-store.myshopify.com
 SHOPIFY_ACCESS_TOKEN=your_admin_api_access_token
-COMPANY_LOCATION_ID=gid://shopify/CompanyLocation/your_location_id
 SHOPIFY_API_VERSION=2024-10
 

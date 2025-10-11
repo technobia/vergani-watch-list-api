@@ -31,7 +31,7 @@ const shopifyGraphQL = async (env, query, variables = {}) => {
   return data;
 };
 
-const getWatchList = async (env) => {
+const getWatchList = async (env, companyLocationId) => {
   const query = `
     query getCompanyLocation($id: ID!) {
       companyLocation(id: $id) {
@@ -44,14 +44,14 @@ const getWatchList = async (env) => {
   `;
 
   const result = await shopifyGraphQL(env, query, {
-    id: env.COMPANY_LOCATION_ID,
+    id: companyLocationId,
   });
 
   const metafieldValue = result.data?.companyLocation?.metafield?.value;
   return metafieldValue ? JSON.parse(metafieldValue) : [];
 };
 
-const updateWatchList = async (env, watchList) => {
+const updateWatchList = async (env, companyLocationId, watchList) => {
   const mutation = `
     mutation setMetafield($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
@@ -72,7 +72,7 @@ const updateWatchList = async (env, watchList) => {
   const result = await shopifyGraphQL(env, mutation, {
     metafields: [
       {
-        ownerId: env.COMPANY_LOCATION_ID,
+        ownerId: companyLocationId,
         namespace: 'custom',
         key: 'watch_list',
         value: JSON.stringify(watchList),
@@ -90,13 +90,13 @@ const updateWatchList = async (env, watchList) => {
 
 app.post('/api/watchlist/add', async (c) => {
   try {
-    const { productId } = await c.req.json();
+    const { companyLocationId, productId } = await c.req.json();
 
-    if (!productId) {
-      return c.json({ error: 'productId is required' }, 400);
+    if (!companyLocationId || !productId) {
+      return c.json({ error: 'companyLocationId and productId are required' }, 400);
     }
 
-    const watchList = await getWatchList(c.env);
+    const watchList = await getWatchList(c.env, companyLocationId);
 
     if (watchList.includes(productId)) {
       return c.json({
@@ -106,7 +106,7 @@ app.post('/api/watchlist/add', async (c) => {
     }
 
     watchList.push(productId);
-    await updateWatchList(c.env, watchList);
+    await updateWatchList(c.env, companyLocationId, watchList);
 
     return c.json({
       message: 'Product added to watch list',
@@ -120,13 +120,13 @@ app.post('/api/watchlist/add', async (c) => {
 
 app.delete('/api/watchlist/remove', async (c) => {
   try {
-    const { productId } = await c.req.json();
+    const { companyLocationId, productId } = await c.req.json();
 
-    if (!productId) {
-      return c.json({ error: 'productId is required' }, 400);
+    if (!companyLocationId || !productId) {
+      return c.json({ error: 'companyLocationId and productId are required' }, 400);
     }
 
-    const watchList = await getWatchList(c.env);
+    const watchList = await getWatchList(c.env, companyLocationId);
 
     const index = watchList.indexOf(productId);
     if (index === -1) {
@@ -137,7 +137,7 @@ app.delete('/api/watchlist/remove', async (c) => {
     }
 
     watchList.splice(index, 1);
-    await updateWatchList(c.env, watchList);
+    await updateWatchList(c.env, companyLocationId, watchList);
 
     return c.json({
       message: 'Product removed from watch list',
