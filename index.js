@@ -51,6 +51,13 @@ const getWatchList = async (env, companyLocationId) => {
   return metafieldValue ? JSON.parse(metafieldValue) : [];
 };
 
+const normalizeProductId = (productId) => {
+  if (typeof productId === 'string' && productId.startsWith('gid://shopify/Product/')) {
+    return productId;
+  }
+  return `gid://shopify/Product/${productId}`;
+};
+
 const updateWatchList = async (env, companyLocationId, watchList) => {
   const mutation = `
     mutation setMetafield($metafields: [MetafieldsSetInput!]!) {
@@ -145,6 +152,40 @@ app.delete('/api/watchlist/remove', async (c) => {
     });
   } catch (error) {
     console.error('Error removing from watch list:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.post('/api/watchlist/reorder', async (c) => {
+  try {
+    const { companyLocationId, orderedProductIds } = await c.req.json();
+
+    if (!companyLocationId || !orderedProductIds || !Array.isArray(orderedProductIds)) {
+      return c.json({ error: 'companyLocationId and orderedProductIds (array) are required' }, 400);
+    }
+
+    const normalizedProductIds = orderedProductIds.map(id => normalizeProductId(id));
+
+    const currentWatchList = await getWatchList(c.env, companyLocationId);
+
+    const currentSet = new Set(currentWatchList);
+    const newSet = new Set(normalizedProductIds);
+
+    if (currentSet.size !== newSet.size || !normalizedProductIds.every(id => currentSet.has(id))) {
+      return c.json({
+        error: 'Ordered product IDs must match existing watch list items',
+        currentWatchList,
+      }, 400);
+    }
+
+    await updateWatchList(c.env, companyLocationId, normalizedProductIds);
+
+    return c.json({
+      message: 'Watch list reordered successfully',
+      watchList: normalizedProductIds,
+    });
+  } catch (error) {
+    console.error('Error reordering watch list:', error);
     return c.json({ error: error.message }, 500);
   }
 });
