@@ -31,26 +31,6 @@ const shopifyGraphQL = async (env, query, variables = {}) => {
   return data;
 };
 
-const getWatchList = async (env, companyLocationId) => {
-  const query = `
-    query getCompanyLocation($id: ID!) {
-      companyLocation(id: $id) {
-        id
-        metafield(namespace: "custom", key: "watch_list") {
-          value
-        }
-      }
-    }
-  `;
-
-  const result = await shopifyGraphQL(env, query, {
-    id: companyLocationId,
-  });
-
-  const metafieldValue = result.data?.companyLocation?.metafield?.value;
-  return metafieldValue ? JSON.parse(metafieldValue) : [];
-};
-
 const normalizeProductId = (productId) => {
   if (typeof productId === 'string' && productId.startsWith('gid://shopify/Product/')) {
     return productId;
@@ -58,15 +38,67 @@ const normalizeProductId = (productId) => {
   return `gid://shopify/Product/${productId}`;
 };
 
-const updateWatchList = async (env, companyLocationId, watchList) => {
-  const mutation = `
-    mutation setMetafield($metafields: [MetafieldsSetInput!]!) {
-      metafieldsSet(metafields: $metafields) {
-        metafields {
-          id
-          namespace
+const getWatchlistMetaobjectId = async (env, companyLocationId) => {
+  const query = `
+    query getCompanyLocation($id: ID!) {
+      companyLocation(id: $id) {
+        id
+        metafield(namespace: "custom", key: "watch_list_object") {
+          value
+        }
+      }
+    }
+  `;
+
+  const result = await shopifyGraphQL(env, query, { id: companyLocationId });
+  return result.data?.companyLocation?.metafield?.value || '';
+};
+
+const getWatchlistMetaobject = async (env, metaobjectId) => {
+  const query = `
+    query getMetaobject($id: ID!) {
+      metaobject(id: $id) {
+        id
+        handle
+        type
+        fields {
           key
           value
+        }
+      }
+    }
+  `;
+
+  const result = await shopifyGraphQL(env, query, { id: metaobjectId });
+  return result.data?.metaobject || null;
+};
+
+const parseWatchlistProducts = (metaobject) => {
+  if (!metaobject?.fields) {
+    return [];
+  }
+
+  const watchlistField = metaobject.fields.find((field) => field.key === 'watchlist_products');
+  if (!watchlistField?.value) {
+    return [];
+  }
+
+  try {
+    const products = JSON.parse(watchlistField.value);
+    return Array.isArray(products) ? products.map(normalizeProductId) : [];
+  } catch (error) {
+    console.error('Failed to parse watchlist products:', error);
+    return [];
+  }
+};
+
+const updateWatchlistMetaobject = async (env, metaobject, products) => {
+  const mutation = `
+    mutation upsertWatchlist($handle: MetaobjectHandleInput!, $metaobject: MetaobjectUpsertInput!) {
+      metaobjectUpsert(handle: $handle, metaobject: $metaobject) {
+        metaobject {
+          id
+          handle
         }
         userErrors {
           field
@@ -76,23 +108,31 @@ const updateWatchList = async (env, companyLocationId, watchList) => {
     }
   `;
 
-  const result = await shopifyGraphQL(env, mutation, {
-    metafields: [
-      {
-        ownerId: companyLocationId,
-        namespace: 'custom',
-        key: 'watch_list',
-        value: JSON.stringify(watchList),
-        type: 'list.product_reference',
-      },
-    ],
-  });
-
-  if (result.data?.metafieldsSet?.userErrors?.length > 0) {
-    throw new Error(`Metafield update errors: ${JSON.stringify(result.data.metafieldsSet.userErrors)}`);
+  if (!metaobject?.handle || !metaobject?.type) {
+    throw new Error('Metaobject handle or type missing');
   }
 
-  return result;
+  const result = await shopifyGraphQL(env, mutation, {
+    handle: {
+      handle: metaobject.handle,
+      type: metaobject.type,
+    },
+    metaobject: {
+      fields: [
+        {
+          key: 'watchlist_products',
+          value: JSON.stringify(products),
+        },
+      ],
+    },
+  });
+
+  const userErrors = result.data?.metaobjectUpsert?.userErrors;
+  if (userErrors?.length > 0) {
+    throw new Error(`Failed to update watchlist: ${JSON.stringify(userErrors)}`);
+  }
+
+  return result.data?.metaobjectUpsert?.metaobject;
 };
 
 app.post('/api/watchlist/add', async (c) => {
@@ -103,24 +143,35 @@ app.post('/api/watchlist/add', async (c) => {
       return c.json({ error: 'companyLocationId and productId are required' }, 400);
     }
 
-    const watchList = await getWatchList(c.env, companyLocationId);
+    const metaobjectId = await getWatchlistMetaobjectId(c.env, companyLocationId);
+    if (!metaobjectId) {
+      return c.json({ error: 'Watchlist not found for this company location' }, 404);
+    }
 
-    if (watchList.includes(productId)) {
+    const metaobject = await getWatchlistMetaobject(c.env, metaobjectId);
+    if (!metaobject) {
+      return c.json({ error: 'Watchlist metaobject not found' }, 404);
+    }
+
+    const watchlist = parseWatchlistProducts(metaobject);
+    const normalizedProductId = normalizeProductId(productId);
+
+    if (watchlist.includes(normalizedProductId)) {
       return c.json({
-        message: 'Product already in watch list',
-        watchList,
+        message: 'Product already in watchlist',
+        watchlist,
       });
     }
 
-    watchList.push(productId);
-    await updateWatchList(c.env, companyLocationId, watchList);
+    watchlist.push(normalizedProductId);
+    await updateWatchlistMetaobject(c.env, metaobject, watchlist);
 
     return c.json({
-      message: 'Product added to watch list',
-      watchList,
+      message: 'Product added to watchlist',
+      watchlist,
     });
   } catch (error) {
-    console.error('Error adding to watch list:', error);
+    console.error('Error adding to watchlist:', error);
     return c.json({ error: error.message }, 500);
   }
 });
@@ -133,25 +184,36 @@ app.delete('/api/watchlist/remove', async (c) => {
       return c.json({ error: 'companyLocationId and productId are required' }, 400);
     }
 
-    const watchList = await getWatchList(c.env, companyLocationId);
+    const metaobjectId = await getWatchlistMetaobjectId(c.env, companyLocationId);
+    if (!metaobjectId) {
+      return c.json({ error: 'Watchlist not found for this company location' }, 404);
+    }
 
-    const index = watchList.indexOf(productId);
+    const metaobject = await getWatchlistMetaobject(c.env, metaobjectId);
+    if (!metaobject) {
+      return c.json({ error: 'Watchlist metaobject not found' }, 404);
+    }
+
+    const watchlist = parseWatchlistProducts(metaobject);
+    const normalizedProductId = normalizeProductId(productId);
+
+    const index = watchlist.indexOf(normalizedProductId);
     if (index === -1) {
       return c.json({
-        error: 'Product not found in watch list',
-        watchList,
+        error: 'Product not found in watchlist',
+        watchlist,
       }, 404);
     }
 
-    watchList.splice(index, 1);
-    await updateWatchList(c.env, companyLocationId, watchList);
+    watchlist.splice(index, 1);
+    await updateWatchlistMetaobject(c.env, metaobject, watchlist);
 
     return c.json({
-      message: 'Product removed from watch list',
-      watchList,
+      message: 'Product removed from watchlist',
+      watchlist,
     });
   } catch (error) {
-    console.error('Error removing from watch list:', error);
+    console.error('Error removing from watchlist:', error);
     return c.json({ error: error.message }, 500);
   }
 });
@@ -164,28 +226,37 @@ app.post('/api/watchlist/reorder', async (c) => {
       return c.json({ error: 'companyLocationId and orderedProductIds (array) are required' }, 400);
     }
 
-    const normalizedProductIds = orderedProductIds.map(id => normalizeProductId(id));
+    const metaobjectId = await getWatchlistMetaobjectId(c.env, companyLocationId);
+    if (!metaobjectId) {
+      return c.json({ error: 'Watchlist not found for this company location' }, 404);
+    }
 
-    const currentWatchList = await getWatchList(c.env, companyLocationId);
+    const metaobject = await getWatchlistMetaobject(c.env, metaobjectId);
+    if (!metaobject) {
+      return c.json({ error: 'Watchlist metaobject not found' }, 404);
+    }
 
-    const currentSet = new Set(currentWatchList);
+    const currentWatchlist = parseWatchlistProducts(metaobject);
+    const normalizedProductIds = orderedProductIds.map((id) => normalizeProductId(id));
+
+    const currentSet = new Set(currentWatchlist);
     const newSet = new Set(normalizedProductIds);
 
-    if (currentSet.size !== newSet.size || !normalizedProductIds.every(id => currentSet.has(id))) {
+    if (currentSet.size !== newSet.size || !normalizedProductIds.every((id) => currentSet.has(id))) {
       return c.json({
-        error: 'Ordered product IDs must match existing watch list items',
-        currentWatchList,
+        error: 'Ordered product IDs must match existing watchlist items',
+        currentWatchlist,
       }, 400);
     }
 
-    await updateWatchList(c.env, companyLocationId, normalizedProductIds);
+    await updateWatchlistMetaobject(c.env, metaobject, normalizedProductIds);
 
     return c.json({
-      message: 'Watch list reordered successfully',
-      watchList: normalizedProductIds,
+      message: 'Watchlist reordered successfully',
+      watchlist: normalizedProductIds,
     });
   } catch (error) {
-    console.error('Error reordering watch list:', error);
+    console.error('Error reordering watchlist:', error);
     return c.json({ error: error.message }, 500);
   }
 });
