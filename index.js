@@ -92,6 +92,21 @@ const parseWatchlistProducts = (metaobject) => {
   }
 };
 
+const getWatchlistData = async (env, companyLocationId) => {
+  const metaobjectId = await getWatchlistMetaobjectId(env, companyLocationId);
+  if (!metaobjectId) {
+    return { error: 'Watchlist not found for this company location', status: 404 };
+  }
+
+  const metaobject = await getWatchlistMetaobject(env, metaobjectId);
+  if (!metaobject) {
+    return { error: 'Watchlist metaobject not found', status: 404 };
+  }
+
+  const watchlist = parseWatchlistProducts(metaobject);
+  return { metaobject, watchlist };
+};
+
 const updateWatchlistMetaobject = async (env, metaobject, products) => {
   const mutation = `
     mutation upsertWatchlist($handle: MetaobjectHandleInput!, $metaobject: MetaobjectUpsertInput!) {
@@ -143,17 +158,12 @@ app.post('/api/watchlist/add', async (c) => {
       return c.json({ error: 'companyLocationId and productId are required' }, 400);
     }
 
-    const metaobjectId = await getWatchlistMetaobjectId(c.env, companyLocationId);
-    if (!metaobjectId) {
-      return c.json({ error: 'Watchlist not found for this company location' }, 404);
+    const data = await getWatchlistData(c.env, companyLocationId);
+    if (data.error) {
+      return c.json({ error: data.error }, data.status);
     }
 
-    const metaobject = await getWatchlistMetaobject(c.env, metaobjectId);
-    if (!metaobject) {
-      return c.json({ error: 'Watchlist metaobject not found' }, 404);
-    }
-
-    const watchlist = parseWatchlistProducts(metaobject);
+    const { metaobject, watchlist } = data;
     const normalizedProductId = normalizeProductId(productId);
 
     if (watchlist.includes(normalizedProductId)) {
@@ -184,17 +194,12 @@ app.delete('/api/watchlist/remove', async (c) => {
       return c.json({ error: 'companyLocationId and productId are required' }, 400);
     }
 
-    const metaobjectId = await getWatchlistMetaobjectId(c.env, companyLocationId);
-    if (!metaobjectId) {
-      return c.json({ error: 'Watchlist not found for this company location' }, 404);
+    const data = await getWatchlistData(c.env, companyLocationId);
+    if (data.error) {
+      return c.json({ error: data.error }, data.status);
     }
 
-    const metaobject = await getWatchlistMetaobject(c.env, metaobjectId);
-    if (!metaobject) {
-      return c.json({ error: 'Watchlist metaobject not found' }, 404);
-    }
-
-    const watchlist = parseWatchlistProducts(metaobject);
+    const { metaobject, watchlist } = data;
     const normalizedProductId = normalizeProductId(productId);
 
     const index = watchlist.indexOf(normalizedProductId);
@@ -226,17 +231,12 @@ app.post('/api/watchlist/reorder', async (c) => {
       return c.json({ error: 'companyLocationId and orderedProductIds (array) are required' }, 400);
     }
 
-    const metaobjectId = await getWatchlistMetaobjectId(c.env, companyLocationId);
-    if (!metaobjectId) {
-      return c.json({ error: 'Watchlist not found for this company location' }, 404);
+    const data = await getWatchlistData(c.env, companyLocationId);
+    if (data.error) {
+      return c.json({ error: data.error }, data.status);
     }
 
-    const metaobject = await getWatchlistMetaobject(c.env, metaobjectId);
-    if (!metaobject) {
-      return c.json({ error: 'Watchlist metaobject not found' }, 404);
-    }
-
-    const currentWatchlist = parseWatchlistProducts(metaobject);
+    const { metaobject, watchlist: currentWatchlist } = data;
     const normalizedProductIds = orderedProductIds.map((id) => normalizeProductId(id));
 
     const currentSet = new Set(currentWatchlist);
