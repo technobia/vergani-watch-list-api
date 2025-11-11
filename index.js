@@ -92,9 +92,99 @@ const parseWatchlistProducts = (metaobject) => {
   }
 };
 
-const getWatchlistData = async (env, companyLocationId) => {
+const createWatchlistMetaobject = async (env, companyLocationId) => {
+  const mutation = `
+    mutation createWatchlist($metaobject: MetaobjectCreateInput!) {
+      metaobjectCreate(metaobject: $metaobject) {
+        metaobject {
+          id
+          handle
+          type
+          fields {
+            key
+            value
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const result = await shopifyGraphQL(env, mutation, {
+    metaobject: {
+      type: 'watchlist',
+      fields: [
+        {
+          key: 'company_location',
+          value: companyLocationId,
+        },
+        {
+          key: 'watchlist_products',
+          value: '[]',
+        },
+      ],
+    },
+  });
+
+  const userErrors = result.data?.metaobjectCreate?.userErrors;
+  if (userErrors?.length > 0) {
+    throw new Error(`Failed to create watchlist: ${JSON.stringify(userErrors)}`);
+  }
+
+  const metaobject = result.data?.metaobjectCreate?.metaobject;
+
+  await linkWatchlistToCompanyLocation(env, companyLocationId, metaobject.id);
+
+  return metaobject;
+};
+
+const linkWatchlistToCompanyLocation = async (env, companyLocationId, metaobjectId) => {
+  const mutation = `
+    mutation setMetafield($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          id
+          value
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const result = await shopifyGraphQL(env, mutation, {
+    metafields: [
+      {
+        ownerId: companyLocationId,
+        namespace: 'custom',
+        key: 'watch_list_object',
+        value: metaobjectId,
+        type: 'metaobject_reference',
+      },
+    ],
+  });
+
+  const userErrors = result.data?.metafieldsSet?.userErrors;
+  if (userErrors?.length > 0) {
+    throw new Error(`Failed to link watchlist to company location: ${JSON.stringify(userErrors)}`);
+  }
+
+  return result.data?.metafieldsSet?.metafields?.[0];
+};
+
+const getWatchlistData = async (env, companyLocationId, createIfMissing = false) => {
   const metaobjectId = await getWatchlistMetaobjectId(env, companyLocationId);
+
   if (!metaobjectId) {
+    if (createIfMissing) {
+      const metaobject = await createWatchlistMetaobject(env, companyLocationId);
+      return { metaobject, watchlist: [] };
+    }
     return { error: 'Watchlist not found for this company location', status: 404 };
   }
 
@@ -158,7 +248,7 @@ app.post('/api/watchlist/add', async (c) => {
       return c.json({ error: 'companyLocationId and productId are required' }, 400);
     }
 
-    const data = await getWatchlistData(c.env, companyLocationId);
+    const data = await getWatchlistData(c.env, companyLocationId, true);
     if (data.error) {
       return c.json({ error: data.error }, data.status);
     }
